@@ -1,0 +1,123 @@
+{
+  "dashboard_title": "Stock Market Overview",
+  "description": "Real-time and historical stock market data visualization",
+  "slug": "stock-market-overview",
+  "published": true,
+  "charts": [
+    {
+      "slice_name": "Stock Price Trends",
+      "description": "Historical closing prices for tracked stocks",
+      "viz_type": "echarts_timeseries_line",
+      "datasource": "daily_aggregates",
+      "query": {
+        "metrics": ["AVG(close_price) as avg_close"],
+        "groupby": ["symbol"],
+        "time_column": "date",
+        "order_by": "date ASC",
+        "row_limit": 1000
+      }
+    },
+    {
+      "slice_name": "Trading Volume",
+      "description": "Daily trading volume by symbol",
+      "viz_type": "echarts_timeseries_bar",
+      "datasource": "daily_aggregates",
+      "query": {
+        "metrics": ["SUM(volume) as total_volume"],
+        "groupby": ["symbol"],
+        "time_column": "date",
+        "order_by": "date ASC",
+        "row_limit": 1000
+      }
+    },
+    {
+      "slice_name": "Average Daily Change",
+      "description": "Average daily price change percentage",
+      "viz_type": "big_number_total",
+      "datasource": "daily_aggregates",
+      "query": {
+        "metrics": ["AVG(daily_change_percent) as avg_change"],
+        "time_grain": "P1D"
+      }
+    },
+    {
+      "slice_name": "Top Performers",
+      "description": "Stocks ranked by daily performance",
+      "viz_type": "table",
+      "datasource": "daily_aggregates",
+      "query": {
+        "columns": ["symbol"],
+        "metrics": [
+          "AVG(daily_change_percent) as avg_change",
+          "SUM(volume) as total_volume",
+          "AVG(close_price) as avg_price"
+        ],
+        "groupby": ["symbol"],
+        "order_by": "avg_change DESC",
+        "row_limit": 10
+      }
+    },
+    {
+      "slice_name": "Price Range (High-Low)",
+      "description": "Daily price range showing volatility",
+      "viz_type": "echarts_area",
+      "datasource": "daily_aggregates",
+      "query": {
+        "metrics": [
+          "AVG(high_price) as avg_high",
+          "AVG(low_price) as avg_low"
+        ],
+        "groupby": ["symbol"],
+        "time_column": "date",
+        "row_limit": 500
+      }
+    },
+    {
+      "slice_name": "Latest Prices",
+      "description": "Most recent stock prices from streaming data",
+      "viz_type": "table",
+      "datasource": "stock_prices",
+      "query": {
+        "columns": ["symbol", "price", "volume", "timestamp"],
+        "order_by": "timestamp DESC",
+        "row_limit": 20
+      }
+    }
+  ],
+  "layout": {
+    "rows": [
+      {
+        "charts": ["Stock Price Trends", "Trading Volume"],
+        "height": 400
+      },
+      {
+        "charts": ["Average Daily Change", "Top Performers"],
+        "height": 300
+      },
+      {
+        "charts": ["Price Range (High-Low)", "Latest Prices"],
+        "height": 350
+      }
+    ]
+  },
+  "filters": [
+    {
+      "name": "Symbol Filter",
+      "column": "symbol",
+      "type": "select",
+      "default": null
+    },
+    {
+      "name": "Date Range",
+      "column": "date",
+      "type": "date_range",
+      "default": "Last 30 days"
+    }
+  ],
+  "refresh_frequency": 60,
+  "metadata": {
+    "created_by": "Open Data Stack",
+    "version": "1.0.0",
+    "default_symbols": ["AAPL", "GOOGL", "MSFT", "AMZN", "META"]
+  }
+}
