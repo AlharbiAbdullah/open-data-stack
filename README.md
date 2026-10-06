@@ -2,6 +2,8 @@
 
 Open source data engineering stack demonstrating batch and streaming pipelines using financial market data.
 
+![Open Data Stack architecture](docs/diagrams/architecture.excalidraw.svg)
+
 ## Features
 
 - **Dual-path architecture**: Both batch (data warehouse) and streaming pipelines
@@ -36,43 +38,9 @@ docker-compose up -d
 # - Spark UI: http://localhost:8081
 ```
 
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      DATA SOURCES                               │
-│                  Yahoo Finance API                              │
-│            (AAPL, GOOGL, MSFT, AMZN, META)                     │
-└───────────────────────┬─────────────────────────────────────────┘
-                        │
-        ┌───────────────┴───────────────┐
-        │                               │
-        ▼                               ▼
-┌───────────────────┐         ┌───────────────────┐
-│    BATCH PATH     │         │   STREAM PATH     │
-│  ─────────────    │         │  ─────────────    │
-│  Airflow DAG      │         │  Kafka Producer   │
-│       │           │         │       │           │
-│       ▼           │         │       ▼           │
-│  Pandas ETL       │         │  Spark Streaming  │
-│       │           │         │       │           │
-│       ▼           │         │       ▼           │
-│    DuckDB         │         │    DuckDB         │
-└───────────────────┘         └───────────────────┘
-        │                               │
-        └───────────────┬───────────────┘
-                        │
-                        ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    VISUALIZATION                                │
-│                  Apache Superset                                │
-│     ┌──────────┐  ┌──────────┐  ┌──────────┐                   │
-│     │  Prices  │  │  Volume  │  │  Movers  │                   │
-│     └──────────┘  └──────────┘  └──────────┘                   │
-└─────────────────────────────────────────────────────────────────┘
-```
-
 ## Tech Stack
+
+![Open Data Stack tech stack](docs/diagrams/tech-stack.excalidraw.svg)
 
 | Layer | Technology | Purpose |
 |-------|------------|---------|
