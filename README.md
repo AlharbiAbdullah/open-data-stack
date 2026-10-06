@@ -1,213 +1,82 @@
-# Open Data Stack
+# open-data-stack
 
-Open source data engineering stack demonstrating batch and streaming pipelines using financial market data.
+Batch and streaming pipelines that land Yahoo Finance stock prices in one DuckDB warehouse.
 
-![Open Data Stack architecture](docs/diagrams/architecture.excalidraw.svg)
+Status: building · portfolio project · 2026-10
 
-## Features
+![Yahoo Finance feeds two paths. In batch, Airflow DAGs extract, validate, load and report daily bars. In stream, a producer publishes live quotes to a Kafka topic, read by a batch consumer and a Spark job for windowed stats. Daily bars are upserted and live prices appended into DuckDB, and Superset charts are defined on the tables.](docs/diagrams/architecture.excalidraw.svg)
 
-- **Dual-path architecture**: Both batch (data warehouse) and streaming pipelines
-- **Real stock data**: Live data from Yahoo Finance API (no API key required)
-- **Full observability**: Superset dashboards for visualization
-- **One-command startup**: Docker Compose orchestrates all services
-- **Production patterns**: Proper ETL, data models, and testing
+## What it does
 
-## Quick Start
+Collects daily bars and live quotes for five tickers (AAPL, GOOGL, MSFT, AMZN, META) into DuckDB.
+SQL then answers daily open, close, high, low, volume and change, plus a log of live prices.
 
-```bash
-# 1. Install Python dependencies
+## How it works
+
+1. **Source.** Yahoo Finance through yfinance, no API key. Daily bars come from each ticker's
+   history, live quotes from its `fast_info`.
+2. **Batch.** Airflow's daily DAG (06:00 UTC) extracts, validates, loads and reports the day's
+   bars; a manual DAG backfills a period. The DAGs skip pandas: its moving averages run in the demo.
+3. **Stream.** A producer publishes quotes to the Kafka topic `stock_prices` every 60 seconds; a
+   consumer appends them to DuckDB in batches of 100. Spark's windowed stats print to the console.
+4. **Warehouse.** One DuckDB file. `daily_aggregates` is upserted on symbol and date,
+   `stock_prices` is appended, and `stocks` holds the seeded tickers.
+5. **Visualize.** Superset runs in Docker Compose. `docker/superset/superset_init.py` prints its
+   DuckDB connection, datasets and charts as JSON; `dashboards/` holds the dashboard layout.
+6. **Checks.** Format, lint, types and tests run locally; the tests never touch the network.
+
+## Tech stack
+
+![Tech stack: Yahoo Finance; Apache Airflow, pandas; Apache Kafka, Apache Spark; DuckDB, Pydantic; Apache Superset; Ruff, pytest; uv, Docker Compose](docs/diagrams/tech-stack.excalidraw.svg)
+
+## Decisions
+
+- **DuckDB over a warehouse server:** no server to run, and the whole warehouse is one portable
+  file. Cost: one process writes the file at a time.
+- **yfinance over a keyed market-data API:** no API key, so the stack runs with no sign-up.
+  Cost: a failed quote is logged and skipped, not retried.
+- **Upsert on symbol and date over append for daily bars:** a re-run or backfill replaces a day
+  instead of duplicating it. Cost: one statement per row.
+
+## Run it
+
+Needs [uv](https://docs.astral.sh/uv/) and Docker.
+
+```sh
 uv sync
-
-# 2. Initialize database with schema and seed data
-uv run python scripts/init_database.py
-
-# 3. Load historical data (optional - for demo)
-uv run python -c "
-from open_data_stack.batch import StockDataETL
-etl = StockDataETL()
-df = etl.run_historical_etl(period='1mo')
-print(f'Loaded {len(df)} records')
-"
-
-# 4. Start all Docker services
-docker-compose up -d
-
-# 5. Access the UIs
-# - Airflow: http://localhost:8080 (admin/admin)
-# - Superset: http://localhost:8088 (admin/admin)
-# - Spark UI: http://localhost:8081
+uv run python scripts/init_database.py   # create the tables, seed the five tickers
+uv run python scripts/demo.py            # fetch a month, run the pandas metrics, load DuckDB
+docker-compose up -d                     # Kafka, Spark, Airflow, Postgres, Superset
 ```
 
-## Tech Stack
+Airflow is on `localhost:8080`, Superset on `localhost:8088`, the Spark UI on `localhost:8081`;
+sign-in settings are in `docker-compose.yml`. The producer, consumer and Spark job start from
+Python: see [docs/reference.md](docs/reference.md).
 
-![Open Data Stack tech stack](docs/diagrams/tech-stack.excalidraw.svg)
+## Checks
 
-| Layer | Technology | Purpose |
-|-------|------------|---------|
-| Data Source | yfinance | Stock market data (free, no API key) |
-| Message Queue | Apache Kafka | Real-time data streaming |
-| Stream Processing | Apache Spark | Structured Streaming |
-| Batch Orchestration | Apache Airflow | DAG scheduling |
-| Data Processing | Pandas, PySpark | ETL transformations |
-| Data Warehouse | DuckDB | Analytical queries (embedded) |
-| Visualization | Apache Superset | Dashboards |
-
-## Project Structure
-
-```
-open_data_stack/
-├── src/open_data_stack/
-│   ├── ingestion/          # Yahoo Finance data fetcher
-│   ├── streaming/          # Kafka producer/consumer
-│   ├── batch/              # Airflow ETL jobs
-│   ├── processing/         # Spark streaming jobs
-│   └── warehouse/          # DuckDB models & repository
-├── dags/                   # Airflow DAG definitions
-├── dashboards/             # Superset dashboard exports
-├── docker/                 # Service configurations
-├── scripts/                # Setup and utility scripts
-└── data/                   # DuckDB database (gitignored)
+```sh
+uv run ruff format .   # one code style
+uv run ruff check .    # lint rules set in pyproject.toml
+uv run mypy src/       # strict typing
+uv run pytest          # yfinance and Kafka mocked, DuckDB in memory
 ```
 
-## Services (Docker)
+No CI runs these; they run locally.
 
-| Service | Port | Credentials |
-|---------|------|-------------|
-| Airflow | 8080 | admin / admin |
-| Superset | 8088 | admin / admin |
-| Spark Master UI | 8081 | - |
-| Spark Worker UI | 8082 | - |
-| Kafka | 9092 | - |
-| Zookeeper | 2181 | - |
-| PostgreSQL | 5432 | airflow / airflow |
+## Layout
 
-## Usage Examples
-
-### Fetch Current Stock Prices
-
-```python
-from open_data_stack.ingestion import YahooFinanceFetcher
-
-fetcher = YahooFinanceFetcher(symbols=["AAPL", "GOOGL"])
-prices = fetcher.fetch_all_current_prices()
-
-for price in prices:
-    print(f"{price.symbol}: ${price.price}")
+```
+src/open_data_stack/   ingestion, batch, streaming, processing (Spark), warehouse
+dags/                  Airflow DAGs
+docker/superset/       Superset config and the DuckDB connection definition
+dashboards/            Superset dashboard definition
+scripts/               database init and the demo run
+docs/                  reference, diagrams
 ```
 
-### Run Batch ETL
+## Docs
 
-```python
-from open_data_stack.batch import StockDataETL
-
-etl = StockDataETL()
-
-# Get last month's data with metrics
-df = etl.run_historical_etl(period="1mo")
-print(df[["symbol", "date", "close_price", "ma_5"]].head())
-```
-
-### Load Data to DuckDB
-
-```python
-import duckdb
-from open_data_stack.warehouse import StockRepository
-
-conn = duckdb.connect("data/warehouse.duckdb")
-repo = StockRepository(conn)
-
-# Query loaded data
-stats = repo.get_all_stats()
-print(stats)
-```
-
-### Stream to Kafka (requires Docker)
-
-```python
-from open_data_stack.streaming import StockPriceProducer
-
-producer = StockPriceProducer()
-producer.run_continuous(interval_seconds=60, max_iterations=10)
-```
-
-## Airflow DAGs
-
-| DAG | Schedule | Description |
-|-----|----------|-------------|
-| `stock_data_daily_etl` | 6 AM UTC daily | Fetches previous day's data |
-| `stock_data_historical_backfill` | Manual | Backfills historical data |
-
-## Data Models
-
-### daily_aggregates
-```sql
-symbol              VARCHAR(10)    -- Stock ticker
-date                DATE           -- Trading date
-open_price          DECIMAL(12,4)  -- Opening price
-close_price         DECIMAL(12,4)  -- Closing price
-high_price          DECIMAL(12,4)  -- Highest price
-low_price           DECIMAL(12,4)  -- Lowest price
-volume              BIGINT         -- Trading volume
-daily_change_percent DECIMAL(8,4)  -- % change
-```
-
-### stock_prices (streaming)
-```sql
-symbol              VARCHAR(10)    -- Stock ticker
-price               DECIMAL(12,4)  -- Current price
-volume              BIGINT         -- Volume
-timestamp           TIMESTAMPTZ    -- Price timestamp
-source              VARCHAR(50)    -- Data source
-```
-
-## Development
-
-```bash
-# Install dependencies
-uv sync
-
-# Run all tests (73 tests)
-uv run pytest
-
-# Run specific test module
-uv run pytest src/open_data_stack/ingestion/tests/ -v
-
-# Format code
-uv run ruff format .
-
-# Lint code
-uv run ruff check .
-
-# Type check
-uv run mypy src/
-```
-
-## Test Coverage
-
-| Module | Tests | Description |
-|--------|-------|-------------|
-| Ingestion | 18 | Yahoo Finance fetcher |
-| Batch | 12 | ETL jobs |
-| Warehouse | 19 | DuckDB repository |
-| Streaming | 24 | Kafka producer/consumer |
-| **Total** | **73** | All passing |
-
-## Default Stock Symbols
-
-```python
-["AAPL", "GOOGL", "MSFT", "AMZN", "META"]
-```
-
-## Configuration
-
-Environment variables (see `.env.example`):
-
-```bash
-STOCK_SYMBOLS=AAPL,GOOGL,MSFT,AMZN,META
-KAFKA_BOOTSTRAP_SERVERS=localhost:9092
-STREAMING_INTERVAL_SECONDS=60
-```
-
-## License
-
-MIT
+- [docs/reference.md](docs/reference.md): services and ports, configuration, DAGs, warehouse
+  tables, and Python usage for each part.
+- [docs/diagrams/diagrams.py](docs/diagrams/diagrams.py): the scene script behind both diagrams.
